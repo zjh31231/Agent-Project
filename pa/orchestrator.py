@@ -39,6 +39,33 @@ class Orchestrator:
             f.write(line + "\n")
         print(f"[{event}] {payload}")
 
+    def _verify_acceptance(self, ticket: Ticket, report: Report) -> None:
+        import re
+        results = list(report.commands or [])
+        all_ok = True
+        for spec in ticket.acceptance or []:
+            cmd = re.split(r"\s+(退出|且|期望|必须)", spec.strip(), maxsplit=1)[0].strip()
+            if not cmd or not cmd.startswith(("python", "py ", "git ", "pytest")):
+                continue
+            code, out = fs.run_bash(self.workspace, cmd, [])
+            results.append({"cmd": cmd, "exit": code, "tail": (out or "")[-800:]})
+            if code != 0:
+                all_ok = False
+        if results:
+            from .models import CommandResult
+            report.commands = [
+                CommandResult.model_validate(r) if not isinstance(r, CommandResult) else r
+                for r in results
+            ]
+        if report.status == "ask_planner":
+            return
+        if ticket.acceptance and all_ok and results:
+            report.status = "ok"
+            report.evidence = (report.evidence or "") + " | harness verified acceptance"
+        elif results and not all_ok:
+            report.status = "blocked"
+            report.evidence = (report.evidence or "") + " | harness acceptance failed"
+
     def plan(self, requirement: str) -> None:
         self.state = RunState(status="planning")
         self._save()
@@ -145,6 +172,7 @@ class Orchestrator:
                 report.question = (report.question or "") + f" scope_violation restored: {illegal}"
                 self._log("scope_violation", {"files": illegal})
             report.changed_files = [p for p in changed if p not in illegal]
+            self._verify_acceptance(ticket, report)
             (self.run_dir / "reports" / f"{ticket.id}.report.json").write_text(
                 report.model_dump_json(indent=2), encoding="utf-8"
             )
