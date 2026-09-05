@@ -1,0 +1,19 @@
+workspace: "."
+run_dir: ".pa"
+
+planner:
+  bin: claude
+  model: claude-opus-5
+  effort: high
+  max_turns: 18
+
+act:
+  bin: grok
+  model: grok-4.6
+  effort: medium
+  max_turns: 12
+
+limits:
+  max_tickets: 40
+  human_on_same_error: 3
+  timeout_sec: 1800
